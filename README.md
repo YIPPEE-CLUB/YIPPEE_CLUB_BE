@@ -1,0 +1,2 @@
+# TEAM_YIPPE_CLUB_BE
+YIPPEE CLUB Backend API Server
