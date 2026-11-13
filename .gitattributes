@@ -1,0 +1,5 @@
+# Preserve canonical specifications and already applied migration bytes.
+/docs/API_SPEC_v1.5.md -text
+/docs/openapi_v1.5.yaml -text
+/accounts/migrations/*.py -text whitespace=cr-at-eol
+/email_verification/migrations/*.py -text whitespace=cr-at-eol

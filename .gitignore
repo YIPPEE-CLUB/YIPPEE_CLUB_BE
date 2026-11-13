@@ -218,3 +218,19 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local isolated MySQL data, backups and credentials; never commit these.
+.mysql-rehearsal/
+
+# Local environment variants, database dumps and client/private credentials.
+.env.*
+!.env.example
+*.sql
+*.sql.gz
+*.dump
+*.bak
+*-client.cnf
+*.pem
+*.key
+*.p12
+*.pfx
