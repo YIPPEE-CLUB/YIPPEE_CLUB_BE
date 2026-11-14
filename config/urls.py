@@ -11,6 +11,8 @@ urlpatterns = [
     path("api/v1/", include("accounts.urls")),
     path("api/v1/", include("children.urls")),
     path("api/v1/", include("categories.urls")),
+    path("api/v1/", include("activities.urls")),
+    path("api/v1/", include("favorites.urls")),
 ]
 
 if settings.DEBUG:

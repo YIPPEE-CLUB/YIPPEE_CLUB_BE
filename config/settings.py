@@ -27,6 +27,8 @@ INSTALLED_APPS = [
     "email_verification.apps.EmailVerificationConfig",
     "categories.apps.CategoriesConfig",
     "children.apps.ChildrenConfig",
+    "activities.apps.ActivitiesConfig",
+    "favorites.apps.FavoritesConfig",
 ]
 
 # Existing databases must complete the legacy bootstrap before deploying this
@@ -109,6 +111,16 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Never expose this directory using MEDIA_URL, a web server alias or a public bucket.
+ACTIVITY_PRIVATE_ROOT = BASE_DIR / "private_uploads"
+ACTIVITY_PDF_MAX_BYTES = 20 * 1024 * 1024
+ACTIVITY_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    "activities": {"BACKEND": "activities.storage.PrivateActivityStorage"},
+}
 
 # Development policy defaults; values are configurable and not final v1.5 policy.
 AUTH_CODE_TTL_SECONDS = env.int("AUTH_CODE_TTL_SECONDS", default=180)

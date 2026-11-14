@@ -237,3 +237,5 @@ __marimo__/
 
 # Personal loopback-only browser API harness.
 /local_dev/
+/private_uploads/
+/sample_activities/
