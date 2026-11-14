@@ -234,3 +234,6 @@ __marimo__/
 *.key
 *.p12
 *.pfx
+
+# Personal loopback-only browser API harness.
+/local_dev/

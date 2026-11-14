@@ -25,6 +25,8 @@ INSTALLED_APPS = [
     "corsheaders",
     "accounts.apps.AccountsConfig",
     "email_verification.apps.EmailVerificationConfig",
+    "categories.apps.CategoriesConfig",
+    "children.apps.ChildrenConfig",
 ]
 
 # Existing databases must complete the legacy bootstrap before deploying this
