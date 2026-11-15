@@ -16,6 +16,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     nickname = models.TextField(blank=True, default="")
     phone = models.TextField(blank=True, default="")
     agreements = models.JSONField(default=dict)
+    active_child = models.ForeignKey(
+        "children.Child", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="selected_by_users", editable=False,
+    )
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     date_joined = models.DateTimeField(default=timezone.now)

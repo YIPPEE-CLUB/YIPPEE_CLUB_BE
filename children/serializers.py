@@ -33,6 +33,10 @@ class ChildReadSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ActiveChildSerializer(StrictSerializer):
+    child_id = CategoryIdField()
+
+
 class ChildCreateSerializer(StrictSerializer):
     name = TextField()
     birth_date = serializers.DateField()
