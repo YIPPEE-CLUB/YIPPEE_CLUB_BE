@@ -42,7 +42,7 @@
 ### 0-3. 프론트엔드와 백엔드 간 필수 합의
 
 - **회원가입 순서:** 이메일 입력 → 인증번호 발송(`POST /auth/verification/send`) → 인증번호 확인(`POST /auth/verification/confirm`) → 검증된 `verification_token`으로 가입(`POST /auth/signup`). 기존 상세 명세의 `password` 선택 표기는 **이메일 가입에 한해 필수**로 해석합니다.
-- **카테고리 데이터:** `GET /activity-categories`의 카테고리 식별자를 아이 등록/수정 `interests` 배열과 활동지 카테고리 연결에 공통 사용합니다. **식별자 타입(코드 문자열 또는 정수 ID), 실제 목록은 미확정**이며 확정 후 예시·DB 필드를 일괄 통일합니다.
+- **카테고리 데이터:** `GET /activity-categories`의 카테고리 식별자를 아이 등록/수정 `interests` 배열과 활동지 카테고리 연결에 공통 사용합니다. 기존 승인 보완계약에 따라 식별자는 **정수 ID**, 카테고리 항목은 **{id, name}**을 사용합니다. 실제 목록 운영은 공통 categories 테이블을 따릅니다.
 - **아이 삭제:** `DELETE /children/{child_id}`는 아이 및 해당 아이의 활동 기록을 함께 삭제합니다. 연결된 사진의 스토리지 삭제/비동기 정리 방식은 별도 결정하며, 타인의 아이 삭제는 금지합니다.
 - **장바구니 담기 (2026-11-15 무료 정책):** JWT 인증 사용자는 공개 활동지를 구매 권한 기록과 관계없이 담을 수 있습니다. 동일 사용자·활동지 중복은 `409 INVALID_STATE`, 없는/비공개 활동지는 `400 VALIDATION_ERROR`입니다. 구매 확인용 503은 사용하지 않으며 기존 구매 권한 기록은 보존합니다. 주문·결제·PG·환불은 이번 범위에서 제외합니다.
 - **관리자:** 활동지 초기 등록 데이터는 관리자만 입력합니다. 우선 Django Admin을 사용하는 방안을 제안하며, 관리자 API가 필요하면 99개 API 외에 별도 명세를 추가합니다.
@@ -1367,23 +1367,17 @@
 
 ### Response
 
+다중 아이 보완계약: 본인 소유 아이를 id 오름차순으로 반환합니다. JWT 필수이며 빈 목록은 `{"results": []}`입니다. 페이지네이션은 추가하지 않습니다.
+
 | key | 설명 | value 타입 | 옵션 | Nullable | 예시 |
-|---|---|---|---|---|
-| `id` | id 값 | integer | 응답 / 필수 | X | `1` |
-| `name` | name 값 | string | 응답 / 필수 | X | `아이 이름` |
-| `birth_date` | birth date 값 | date | 응답 / 필수 | X | `2022-05-01` |
-| `gender` | gender 값 | string | 응답 / 필수 | X | `female` |
-| `interests` | interests 값 | array | 응답 / 필수 | X | `[]` |
+|---|---|---|---|---|---|
+| `results` | 아이 목록 | array | 응답 / 필수 | X | `[]` |
+
+각 항목은 21/22번과 동일한 id(integer), name(string), birth_date(date), gender(string), interests(공통 카테고리 정수 ID 배열)입니다. 필드는 모두 필수·non-null입니다.
 
 **Example**
 ```json
-{
-  "id": 1,
-  "name": "아이 이름",
-  "birth_date": "2022-05-01",
-  "gender": "female",
-  "interests": []
-}
+{"results": []}
 ```
 
 ### Status
@@ -1535,7 +1529,7 @@
 
 **v1.5 확정:** 아이 관심사 수정 시에도 등록과 동일한 공통 카테고리 목록을 사용하며, 중복 및 존재하지 않는 카테고리 식별자를 거부합니다.
 
-기능: 아이 정보 수정.
+기능: 아이 정보 수정. 기존 승인 보완계약에 따라 생략한 필드는 유지합니다. name/birth_date의 null은 400이며 gender/interests의 null은 빈 문자열/빈 배열로 초기화합니다. interests=[]는 관심사를 비우고, interests 생략은 기존 관심사를 유지합니다. 잘못된 타입·중복·미존재 카테고리는 400이고 실패 시 모든 값은 유지합니다. 타인 아이는 404입니다.
 
 ### Request
 
@@ -1559,8 +1553,8 @@
 
 | key | 설명 | value 타입 | 옵션 | Nullable | 예시 |
 |---|---|---|---|---|
-| `name` | name 값 | string | Body / 선택 | O | `아이 이름` |
-| `birth_date` | birth date 값 | date | Body / 선택 | O | `2022-05-01` |
+| `name` | name 값 | string | Body / 선택 | X | `아이 이름` |
+| `birth_date` | birth date 값 | date | Body / 선택 | X | `2022-05-01` |
 | `gender` | gender 값 | string | Body / 선택 | O | `female` |
 | `interests` | interests 값 | array | Body / 선택 | O | `[]` |
 
@@ -2299,7 +2293,7 @@
 ## 37. 놀이 카테고리 및 안내
 **`GET /api/v1/activity-categories`**
 
-기능: 놀이 카테고리 및 안내.
+기능: 놀이 카테고리 및 안내. 공개 공통 카탈로그로 JWT 없이 조회 가능합니다. 전달한 JWT는 검증하며 무효·만료 토큰은 401입니다. 응답은 id 오름차순의 results 배열이며 항목은 정수 id와 name 문자열뿐입니다. 아이 관심사와 활동지가 같은 Category를 사용합니다.
 
 ### Request
 
@@ -2338,6 +2332,7 @@
 |---|---|
 | 200 | 정상 처리 |
 | 400 | 요청 형식 또는 필수값 오류 |
+| 401 | 제공한 인증 토큰이 무효 또는 만료 |
 | 500 | 서버 내부 오류 |
 
 ---

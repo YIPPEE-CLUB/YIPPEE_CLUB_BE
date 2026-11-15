@@ -1,5 +1,7 @@
 # 아이 관리·공통 카테고리 API 구현
 
+> **2026-11-15 계약 정합성 수정:** 승인된 results 배열/정수 카테고리 ID/PATCH null 보완계약을 공식 Markdown·OpenAPI에 반영했다. 카테고리는 이번 사용자 확인에 따라 공개 조회로 변경했고, 아이 API와 선택 API는 JWT 필수를 유지한다. 아래 ‘모든 경로 JWT’ 설명은 최초 구현 이력이다. 최신 검증은 [계약 정합성 수정 결과](API_CONTRACT_ALIGNMENT_UPDATE.md)를 따른다.
+
 > 최신 상태: [개발 DB 적용 완료 기록](CHILD_API_DEPLOYMENT.md).
 > categories.0001/children.0001 적용과 최종 검증을 완료했다. 현재 20개 테이블/24개 migration이다.
 > 아래 미적용/후속 적용 설명은 최초 구현 시점의 기록이며 현재 적용 결과는 최신 기록을 따른다.
