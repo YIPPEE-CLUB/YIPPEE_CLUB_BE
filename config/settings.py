@@ -29,11 +29,17 @@ INSTALLED_APPS = [
     "children.apps.ChildrenConfig",
     "activities.apps.ActivitiesConfig",
     "favorites.apps.FavoritesConfig",
+    "cart.apps.CartConfig",
+    "purchases.apps.PurchasesConfig",
 ]
 
 # Existing databases must complete the legacy bootstrap before deploying this
 # setting. See docs/USER_MIGRATION_STAGE1.md; changing settings alone is unsafe.
 AUTH_USER_MODEL = "accounts.User"
+
+# Enable only after reviewing/importing the authoritative purchase permissions.
+# Empty initial permission tables do not prove that existing users never bought.
+CART_PURCHASE_ENTITLEMENTS_VERIFIED = env.bool("CART_PURCHASE_ENTITLEMENTS_VERIFIED", default=False)
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
