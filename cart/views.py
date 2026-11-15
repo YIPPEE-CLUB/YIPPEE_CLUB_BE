@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.db import transaction
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound
@@ -9,7 +8,6 @@ from rest_framework.response import Response
 from activities.models import Activity
 from activities.serializers import ActivitySerializer
 from email_verification.errors import AuthError, auth_exception_handler
-from purchases.models import PurchaseEntitlement
 from .models import CartItem
 from .serializers import CartCreateSerializer, CartQuerySerializer
 
@@ -38,20 +36,13 @@ class CartCreateView(CartAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         activity_id = serializer.validated_data["activity_id"]
-        # A newly created empty permission table is NOT evidence of no purchases.
-        if not settings.CART_PURCHASE_ENTITLEMENTS_VERIFIED:
-            raise AuthError("구매 권한 데이터 연결 확인 후 이용할 수 있습니다.",
-                            status=503, code="SERVICE_UNAVAILABLE")
         with transaction.atomic():
-            # Permission writers must acquire this same Activity lock before
-            # granting/revoking rights. UNIQUE also covers external cart inserts.
+            # Free activities need no purchase permission. Keep availability
+            # checks and competing cart inserts serialized; UNIQUE also guards
+            # inserts made outside this API.
             activity = Activity.objects.select_for_update().filter(pk=activity_id, is_public=True).first()
             if activity is None:
                 raise serializers.ValidationError({"activity_id": "공개된 활동지를 선택해 주세요."})
-            if PurchaseEntitlement.objects.filter(user=request.user, activity=activity,
-                    status=PurchaseEntitlement.Status.ACTIVE).exists():
-                # v1.5 proposed error code; purchase rejection itself is confirmed.
-                raise AuthError("이미 구매한 활동지입니다.", status=409, code="ALREADY_PURCHASED")
             _, created = CartItem.objects.get_or_create(user=request.user, activity=activity)
             if not created:
                 raise AuthError("이미 장바구니에 등록된 활동지입니다.", status=409, code="INVALID_STATE")
