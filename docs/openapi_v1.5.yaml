@@ -3201,9 +3201,7 @@ paths:
       - 장바구니·결제
       summary: 44. 장바구니
       operationId: api44_get
-      description: '1차 핵심 또는 후속 개발 여부는 원문 0절 참조.
-
-        '
+      description: '무료 정책: JWT 인증 사용자의 공개 활동지만 items/total_amount로 반환합니다. 모든 가격과 합계는 0원이며 비공개 관계는 보존하되 목록에서 제외합니다.'
       responses:
         '200':
           description: 정상 처리
@@ -3220,13 +3218,13 @@ paths:
                   total_amount:
                     type: integer
                     description: total amount 값
-                    example: 2890
+                    example: 0
                 required:
                 - items
                 - total_amount
               example:
                 items: []
-                total_amount: 2890
+                total_amount: 0
         '400':
           description: 요청 형식 또는 필수값 오류
           content:
@@ -3260,10 +3258,7 @@ paths:
       - 장바구니·결제
       summary: 45. 장바구니 담기
       operationId: api45_post
-      description: '1차 핵심 또는 후속 개발 여부는 원문 0절 참조.
-
-        **v1.5 확정:** 이미 구매 권한이 있는 활동지는 장바구니에 추가할 수 없습니다. `409 ALREADY_PURCHASED` 응답을 제안합니다. 아래 Status 표는 이 규칙을 추가하여
-        해석합니다.'
+      description: '2026-11-15 무료 정책: 모든 활동지는 무료입니다. JWT 인증 사용자는 공개 활동지를 구매 권한 기록과 관계없이 추가할 수 있습니다. 동일 사용자·활동지 중복은 409 INVALID_STATE, 잘못된 입력 및 없는/비공개 활동지는 400 VALIDATION_ERROR, 인증 실패는 401입니다. 구매 확인용 503은 사용하지 않습니다. 기존 구매 권한 기록은 보존하며 주문·결제·PG·환불은 이번 범위에서 제외합니다.'
       responses:
         '201':
           description: 정상 처리
@@ -3333,9 +3328,7 @@ paths:
       - 장바구니·결제
       summary: 46. 장바구니에서 삭제
       operationId: api46_delete
-      description: '1차 핵심 또는 후속 개발 여부는 원문 0절 참조.
-
-        '
+      description: '무료 정책: JWT 인증 사용자의 관계만 activity_id로 삭제하고 성공 시 204, 타인/없는 관계는 404입니다. 비공개 항목도 삭제 가능하며 원본 활동지·카테고리·구매 권한 기록은 보존합니다.'
       responses:
         '204':
           description: 정상 처리

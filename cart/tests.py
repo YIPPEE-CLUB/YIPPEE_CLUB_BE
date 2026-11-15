@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, connection, connections, transaction
 from django.db.models.deletion import ProtectedError
 from django.test import TestCase, TransactionTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
@@ -22,7 +23,7 @@ ISOLATED = getattr(settings, "IS_USER_MODEL_REHEARSAL", False)
 
 
 @skipUnless(ISOLATED, "Cart tests require isolated MySQL.")
-@override_settings(CART_PURCHASE_ENTITLEMENTS_VERIFIED=True)
+@override_settings(CART_PURCHASE_ENTITLEMENTS_VERIFIED=False)
 class CartAPITests(TestCase):
     databases = {"default"} if ISOLATED else set()
 
@@ -69,6 +70,8 @@ class CartAPITests(TestCase):
         self.assertEqual(set(response.data), {"items", "total_amount"})
         self.assertEqual([row["id"] for row in response.data["items"]], [second.pk, self.row.pk])
         self.assertEqual(response.data["total_amount"], sum(row["price"] for row in response.data["items"]))
+        self.assertEqual(response.data["total_amount"], 0)
+        self.assertTrue(all(row["price"] == 0 for row in response.data["items"]))
         self.assertEqual(set(response.data["items"][0]), set(ActivitySerializer.Meta.fields))
         self.authenticate(self.other)
         self.assertEqual([row["id"] for row in self.client.get("/api/v1/cart").data["items"]], [self.row.pk])
@@ -101,29 +104,39 @@ class CartAPITests(TestCase):
             self.error(self.post({"activity_id": pk}), 400)
         self.assertFalse(CartItem.objects.exists())
 
-    def test_active_purchase_denied_before_duplicate_check(self):
-        PurchaseEntitlement.objects.create(user=self.owner, activity=self.row)
-        self.error(self.post(), 409, "ALREADY_PURCHASED")
-        self.assertFalse(CartItem.objects.exists())
-        CartItem.objects.create(user=self.owner, activity=self.row)
-        self.error(self.post(), 409, "ALREADY_PURCHASED")
+    def test_active_purchase_does_not_block_free_cart_and_record_is_preserved(self):
+        right = PurchaseEntitlement.objects.create(user=self.owner, activity=self.row)
+        before = PurchaseEntitlement.objects.values().get(pk=right.pk)
+        self.assertEqual(self.post().status_code, 201)
+        self.error(self.post(), 409, "INVALID_STATE")
+        self.assertEqual(self.client.get("/api/v1/cart").data["total_amount"], 0)
+        self.assertEqual(self.delete().status_code, 204)
+        self.assertEqual(PurchaseEntitlement.objects.values().get(pk=right.pk), before)
 
     def test_other_users_purchase_does_not_block(self):
         PurchaseEntitlement.objects.create(user=self.other, activity=self.row)
         self.assertEqual(self.post().status_code, 201)
 
     def test_revoked_entitlement_is_not_active(self):
-        PurchaseEntitlement.objects.create(user=self.owner, activity=self.row,
+        right = PurchaseEntitlement.objects.create(user=self.owner, activity=self.row,
             status=PurchaseEntitlement.Status.REVOKED, revoked_at=timezone.now())
+        before = PurchaseEntitlement.objects.values().get(pk=right.pk)
         self.assertEqual(self.post().status_code, 201)
+        self.assertEqual(PurchaseEntitlement.objects.values().get(pk=right.pk), before)
 
     @override_settings(CART_PURCHASE_ENTITLEMENTS_VERIFIED=False)
-    def test_unverified_empty_permissions_fail_closed_and_read_delete_work(self):
-        self.error(self.post(), 503, "SERVICE_UNAVAILABLE")
-        self.assertFalse(CartItem.objects.exists())
-        CartItem.objects.create(user=self.owner, activity=self.row)
+    def test_unverified_permissions_allow_free_add_read_and_delete(self):
+        self.assertEqual(self.post().status_code, 201)
+        self.assertEqual(CartItem.objects.count(), 1)
         self.assertEqual(self.client.get("/api/v1/cart").status_code, 200)
         self.assertEqual(self.delete().status_code, 204)
+
+    def test_free_cart_does_not_query_purchase_permissions(self):
+        with CaptureQueriesContext(connection) as queries:
+            self.assertEqual(self.post().status_code, 201)
+            self.assertEqual(self.client.get("/api/v1/cart").status_code, 200)
+            self.assertEqual(self.delete().status_code, 204)
+        self.assertFalse(any("purchase_entitlements" in row["sql"].lower() for row in queries))
 
     def test_delete_uses_activity_id_owner_and_preserves_source_and_rights(self):
         # Distinct item and activity IDs catch accidental deletion by cart PK.
@@ -179,7 +192,7 @@ class CartAPITests(TestCase):
 
 
 @skipUnless(ISOLATED, "Concurrency tests require isolated MySQL.")
-@override_settings(CART_PURCHASE_ENTITLEMENTS_VERIFIED=True)
+@override_settings(CART_PURCHASE_ENTITLEMENTS_VERIFIED=False)
 class CartConcurrencyTests(TransactionTestCase):
     databases = {"default"} if ISOLATED else set()
 
