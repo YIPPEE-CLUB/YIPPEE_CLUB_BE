@@ -1,11 +1,15 @@
 from datetime import datetime, timezone as datetime_timezone
+from urllib.parse import urlencode, urlsplit
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core import signing
+from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
+from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
+from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.debug import sensitive_variables
 from rest_framework_simplejwt.exceptions import TokenError
@@ -136,13 +140,34 @@ def _set_password(user, password):
 
 @sensitive_variables()
 def request_password_reset(email):
+    # Validate even for unknown users: configuration failure must not disclose
+    # registration state. No request-provided host/redirect URL is ever used.
+    frontend_url = settings.PASSWORD_RESET_FRONTEND_URL
+    try:
+        if (not isinstance(frontend_url, str) or not frontend_url or
+                any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in frontend_url) or
+                any(c in frontend_url for c in ("\\", "?", "#"))):
+            raise ValueError
+        parsed = urlsplit(frontend_url)
+        URLValidator(schemes=["https"])(frontend_url)
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError
+    except (ValidationError, ValueError):
+        raise AuthError("비밀번호 재설정 메일 설정을 확인해 주세요.", status=500,
+                        code="INTERNAL_SERVER_ERROR") from None
     user = get_user_model().objects.filter(email__iexact=email, is_active=True).first()
     if user is None:
         return
     token = signing.dumps({"uid": user.pk, "proof": default_token_generator.make_token(user)}, salt=RESET_SALT)
+    # Fragment is not sent to the frontend server or in the HTTP Referer.
+    reset_url = frontend_url + "#" + urlencode({"reset_token": token})
+    context = {"reset_url": reset_url, "expires_in_seconds": settings.PASSWORD_RESET_TIMEOUT}
+    text_body = render_to_string("accounts/emails/password_reset.txt", context)
+    html_body = render_to_string("accounts/emails/password_reset.html", context)
     try:
-        sent = send_mail("YIPPEE CLUB 비밀번호 재설정", "비밀번호 재설정 토큰: " + token,
-                         settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=False)
+        sent = send_mail("YIPPEE CLUB 비밀번호 재설정", text_body,
+                         settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=False,
+                         html_message=html_body)
         if sent != 1:
             raise RuntimeError("Mail not delivered")
     except Exception:

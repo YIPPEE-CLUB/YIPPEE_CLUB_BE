@@ -3,6 +3,8 @@ import secrets
 from datetime import timedelta
 from unittest import skipUnless
 from unittest.mock import patch
+from html.parser import HTMLParser
+from urllib.parse import parse_qs, urlsplit
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -22,7 +24,8 @@ ISOLATED = getattr(settings, "IS_USER_MODEL_REHEARSAL", False) and settings.AUTH
 
 
 @skipUnless(ISOLATED, "Account API data tests require the isolated MySQL instance.")
-@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", AUTH_IP_LIMIT=1000, AUTH_EMAIL_LIMIT=1000)
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", AUTH_IP_LIMIT=1000, AUTH_EMAIL_LIMIT=1000,
+                   PASSWORD_RESET_FRONTEND_URL="https://frontend.example.com/password/reset")
 class AccountAPITests(TestCase):
     databases = {"default"} if ISOLATED else set()
     password = "SecureAccountPwd!83927"
@@ -259,12 +262,65 @@ class AccountAPITests(TestCase):
         response = self.post("password-reset-request", {"email": self.email})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(set(response.data), {"message"})
-        token = mail.outbox[-1].body.split(": ", 1)[1]
+        token = self.reset_token_from_email()
         body = {"reset_token": token, "new_password": "ResetSecurePwd!823948"}
         self.assertEqual(self.post("password-reset-confirm", body).status_code, 200)
         self.assert_error(self.post("password-reset-confirm", body), 400)
         self.assert_error(self.post("refresh", {"refresh_token": tokens["refresh_token"]}), 400)
         self.assertEqual(self.login(password=body["new_password"]).status_code, 200)
+        self.assert_error(self.login(password=self.password), 400)
+
+    def reset_token_from_email(self):
+        link = next(line for line in mail.outbox[-1].body.splitlines() if line.startswith("https://"))
+        return parse_qs(urlsplit(link).fragment)["reset_token"][0]
+
+    def test_reset_email_html_button_plain_text_and_mime(self):
+        self.signup()
+        self.assertEqual(self.post("password-reset-request", {"email": self.email}).status_code, 200)
+        message = mail.outbox[-1]
+        link = next(line for line in message.body.splitlines() if line.startswith("https://"))
+        self.assertTrue(link.startswith(settings.PASSWORD_RESET_FRONTEND_URL + "#reset_token="))
+        self.assertEqual(urlsplit(link).query, "")
+        self.assertEqual(set(parse_qs(urlsplit(link).fragment)), {"reset_token"})
+        links = []
+        class Links(HTMLParser):
+            def handle_starttag(self, tag, attrs):
+                if tag == "a":
+                    links.append(dict(attrs).get("href"))
+        self.assertEqual(len(message.alternatives), 1)
+        html, content_type = message.alternatives[0]
+        Links().feed(html)
+        self.assertEqual(content_type, "text/html")
+        self.assertTrue(len(links) == 2 and all(item == link for item in links))
+        self.assertIn("비밀번호 재설정하기", html)
+        for content in (message.body, html):
+            self.assertIn(str(settings.PASSWORD_RESET_TIMEOUT), content)
+            self.assertIn("본인이 요청하지 않았다면", content)
+            self.assertNotIn(self.password, content)
+        mime = message.message()
+        self.assertEqual(mime.get_content_type(), "multipart/alternative")
+        self.assertEqual([part.get_content_type() for part in mime.get_payload()], ["text/plain", "text/html"])
+        self.assertTrue(all(part.get_content_charset() == "utf-8" for part in mime.get_payload()))
+
+    def test_reset_url_unset_or_unsafe_fails_without_mail(self):
+        self.signup()
+        for url in ("", "http://frontend.example.com/reset", "//frontend.example.com/reset",
+                    "https://user:secret@frontend.example.com/reset", "https://frontend.example.com/reset?next=https://other.example",
+                    "https://frontend.example.com/reset#existing", "https://frontend.example.com/\\other",
+                    "https://frontend.example.com/reset\r\n", "javascript:alert(1)"):
+            with self.subTest(url=url), override_settings(PASSWORD_RESET_FRONTEND_URL=url):
+                with patch("accounts.services.send_mail") as send:
+                    for email in (self.email, "unknown@example.com"):
+                        self.assert_error(self.post("password-reset-request", {"email": email}), 500)
+                    send.assert_not_called()
+
+    def test_reset_request_rejects_client_redirect_url(self):
+        self.signup()
+        with patch("accounts.services.send_mail") as send:
+            self.assert_error(self.post("password-reset-request", {
+                "email": self.email, "redirect_url": "https://other.example/reset",
+            }), 400)
+            send.assert_not_called()
 
     def test_reset_unknown_email_invalid_token_and_mail_error(self):
         self.assertEqual(self.post("password-reset-request", {"email": "unknown@example.com"}).status_code, 200)
@@ -279,7 +335,7 @@ class AccountAPITests(TestCase):
     def test_reset_expiry_and_weak_password_do_not_change_password(self):
         self.signup()
         self.post("password-reset-request", {"email": self.email})
-        token = mail.outbox[-1].body.split(": ", 1)[1]
+        token = self.reset_token_from_email()
         body = {"reset_token": token, "new_password": "AnotherSecurePwd!82934"}
         with override_settings(PASSWORD_RESET_TIMEOUT=-1):
             self.assert_error(self.post("password-reset-confirm", body), 400)
