@@ -1,4 +1,6 @@
+from django.contrib.auth import get_user_model
 from django.db import transaction
+from rest_framework import serializers
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -7,7 +9,7 @@ from email_verification.errors import auth_exception_handler
 
 from .models import Child
 from .permissions import IsChildOwner
-from .serializers import ChildCreateSerializer, ChildReadSerializer, ChildUpdateSerializer
+from .serializers import ActiveChildSerializer, ChildCreateSerializer, ChildReadSerializer, ChildUpdateSerializer
 
 
 class ChildAPIView(GenericAPIView):
@@ -55,5 +57,31 @@ class ChildDetailView(ChildAPIView):
 
     def delete(self, request, child_id):
         with transaction.atomic():
-            self.get_locked_object().delete()
+            child = self.get_locked_object()
+            # Match selection's Child -> User lock order. Serializing the owner
+            # prevents deletion from clearing a concurrently changed selection.
+            get_user_model().objects.select_for_update().get(pk=request.user.pk)
+            child.delete()
         return Response(status=204)
+
+
+class ActiveChildView(ChildAPIView):
+    serializer_class = ActiveChildSerializer
+
+    def put(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            # Same lock order as child deletion, including selecting a sibling.
+            child = Child.objects.select_for_update().filter(
+                pk=serializer.validated_data["child_id"], user=request.user,
+            ).first()
+            if child is None:
+                # API 25 defines 400, not 404. Do not disclose other owners.
+                raise serializers.ValidationError({"child_id": "본인의 아이를 선택해 주세요."})
+            self.check_object_permissions(request, child)
+            user = get_user_model().objects.select_for_update().get(pk=request.user.pk)
+            if user.active_child_id != child.pk:
+                user.active_child_id = child.pk
+                user.save(update_fields=["active_child"])
+        return Response({"active_child_id": child.pk})
