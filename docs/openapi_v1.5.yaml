@@ -1405,9 +1405,7 @@ paths:
       - 사용자·아이
       summary: 20. 아이 목록
       operationId: api20_get
-      description: '1차 핵심 또는 후속 개발 여부는 원문 0절 참조.
-
-        '
+      description: 'JWT 필수. 본인의 아이만 id 오름차순 results 배열로 반환하며 빈 목록은 results=[]입니다. 기존 승인 다중 아이 보완계약을 반영합니다.'
       responses:
         '200':
           description: 정상 처리
@@ -1416,40 +1414,44 @@ paths:
               schema:
                 type: object
                 properties:
-                  id:
-                    type: integer
-                    description: id 값
-                    example: 1
-                  name:
-                    type: string
-                    description: name 값
-                    example: 아이 이름
-                  birth_date:
-                    type: string
-                    description: birth date 값
-                    format: date
-                    example: '2022-05-01'
-                  gender:
-                    type: string
-                    description: gender 값
-                    example: female
-                  interests:
+                  results:
                     type: array
-                    description: interests 값
-                    items: {}
-                    example: []
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          description: id 값
+                          example: 1
+                        name:
+                          type: string
+                          description: name 값
+                          example: 아이 이름
+                        birth_date:
+                          type: string
+                          description: birth date 값
+                          format: date
+                          example: '2022-05-01'
+                        gender:
+                          type: string
+                          description: gender 값
+                          example: female
+                        interests:
+                          type: array
+                          description: interests 값
+                          items:
+                            type: integer
+                          example: []
+                      required:
+                      - id
+                      - name
+                      - birth_date
+                      - gender
+                      - interests
                 required:
-                - id
-                - name
-                - birth_date
-                - gender
-                - interests
+                - results
               example:
-                id: 1
-                name: 아이 이름
-                birth_date: '2022-05-01'
-                gender: female
-                interests: []
+                results: []
         '400':
           description: 요청 형식 또는 필수값 오류
           content:
@@ -1684,9 +1686,7 @@ paths:
       - 사용자·아이
       summary: 23. 아이 정보 수정
       operationId: api23_patch
-      description: '1차 핵심 또는 후속 개발 여부는 원문 0절 참조.
-
-        **v1.5 확정:** 아이 관심사 수정 시에도 등록과 동일한 공통 카테고리 목록을 사용하며, 중복 및 존재하지 않는 카테고리 식별자를 거부합니다.'
+      description: 'JWT 및 본인 소유권 필수. 생략 필드는 유지합니다. name/birth_date null은 400, gender/interests null은 빈 문자열/빈 배열로 초기화합니다. interests=[]는 비우고 생략은 유지합니다. 잘못된 타입·중복·미존재 카테고리는 400, 타인 아이는 404입니다.'
       responses:
         '200':
           description: 정상 처리
@@ -1777,13 +1777,13 @@ paths:
                 name:
                   type: string
                   description: name 값
-                  nullable: true
+                  nullable: false
                   example: 아이 이름
                 birth_date:
                   type: string
                   description: birth date 값
                   format: date
-                  nullable: true
+                  nullable: false
                   example: '2022-05-01'
                 gender:
                   type: string
@@ -2741,9 +2741,7 @@ paths:
       - 활동지·검색
       summary: 37. 놀이 카테고리 및 안내
       operationId: api37_get
-      description: '1차 핵심 또는 후속 개발 여부는 원문 0절 참조.
-
-        '
+      description: '공개 공통 카탈로그입니다. JWT 없이 200, 유효 JWT도 200이며 제공된 무효/만료 JWT는 401입니다. results는 id 오름차순이며 항목은 정수 id와 name 문자열입니다. 아이와 활동지가 같은 Category를 사용합니다.'
       responses:
         '200':
           description: 정상 처리
@@ -2763,6 +2761,12 @@ paths:
                 results: []
         '400':
           description: 요청 형식 또는 필수값 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: 제공한 인증 토큰이 무효 또는 만료
           content:
             application/json:
               schema:

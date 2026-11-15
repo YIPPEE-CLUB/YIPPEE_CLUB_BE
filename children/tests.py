@@ -67,15 +67,58 @@ class ChildAPITests(TestCase):
     def test_empty_list(self):
         self.assertEqual(self.client.get(self.url).data, {"results": []})
 
-    def test_unauthenticated_all_methods_and_categories(self):
+    def test_unauthenticated_child_methods_are_protected(self):
         child = Child.objects.create(user=self.owner, name="Private", birth_date=self.birth_date)
         self.client.credentials()
         operations = [self.client.get(self.url), self.create(), self.client.get(self.detail(child.pk)),
                       self.client.patch(self.detail(child.pk), {"name": "Attack"}, format="json"),
-                      self.client.delete(self.detail(child.pk)), self.client.get(reverse("categories:list"))]
+                      self.client.delete(self.detail(child.pk))]
         for response in operations:
             self.assert_error(response, 401)
         self.assertTrue(Child.objects.filter(pk=child.pk).exists())
+
+    def test_category_catalogue_public_and_authenticated_contract(self):
+        url = reverse("categories:list")
+        authenticated = self.client.get(url)
+        self.assertEqual(authenticated.status_code, 200)
+        self.client.credentials()
+        public = self.client.get(url)
+        self.assertEqual(public.status_code, 200)
+        self.assertEqual(public.data, authenticated.data)
+        self.assertEqual(set(public.data), {"results"})
+        for row in public.data["results"]:
+            self.assertEqual(set(row), {"id", "name"})
+        self.assertEqual(self.client.post(url, {"name": "Blocked"}, format="json").status_code, 405)
+        for token in ("invalid", self.expired_access_token()):
+            self.client.credentials(HTTP_AUTHORIZATION="Bearer " + token)
+            self.assert_error(self.client.get(url), 401)
+
+    def expired_access_token(self):
+        token = AccessToken.for_user(self.owner)
+        token.set_exp(lifetime=timedelta(seconds=-1))
+        return str(token)
+
+    def test_patch_explicit_empty_interests_and_omission(self):
+        original = self.create().data
+        url = self.detail(original["id"])
+        response = self.client.patch(url, {"gender": "male"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["interests"], original["interests"])
+        response = self.client.patch(url, {"interests": []}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["interests"], [])
+        for key in ("name", "birth_date"):
+            self.assertEqual(response.data[key], original[key])
+        self.assertEqual(response.data["gender"], "male")
+
+    def test_patch_invalid_types_preserve_original_values(self):
+        original = self.create().data
+        url = self.detail(original["id"])
+        for body in ({"name": 123}, {"birth_date": 123}, {"gender": True},
+                     {"interests": {}}, {"interests": [True]}, {"interests": [str(self.first.pk)]}):
+            with self.subTest(body=body):
+                self.assert_error(self.client.patch(url, body, format="json"), 400)
+                self.assertEqual(self.client.get(url).data, original)
 
     def test_invalid_and_expired_jwt(self):
         self.client.credentials(HTTP_AUTHORIZATION="Bearer invalid")
