@@ -73,6 +73,10 @@ class ProfileSerializer(serializers.Serializer):
     name = serializers.CharField(read_only=True)
 
 
+class ProfileReadSerializer(ProfileSerializer):
+    active_child_id = serializers.IntegerField(read_only=True, allow_null=True)
+
+
 class ProfileUpdateSerializer(StrictSerializer):
     name = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     nickname = serializers.CharField(required=False, allow_null=True, allow_blank=True)

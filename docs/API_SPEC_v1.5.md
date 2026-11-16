@@ -1159,6 +1159,7 @@
 | `email` | email 값 | string | 응답 / 필수 | X | `user@example.com` |
 | `phone` | phone 값 | string | 응답 / 필수 | X | `01012345678` |
 | `name` | name 값 | string | 응답 / 필수 | X | `아이 이름` |
+| `active_child_id` | 현재 선택된 본인 아이 ID. 미선택 또는 선택 아이 삭제 시 null | integer | 응답 / 필수 | O | `3` 또는 `null` |
 
 **Example**
 ```json
@@ -1166,7 +1167,8 @@
   "id": 1,
   "email": "user@example.com",
   "phone": "01012345678",
-  "name": "아이 이름"
+  "name": "아이 이름",
+  "active_child_id": 3
 }
 ```
 

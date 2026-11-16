@@ -75,7 +75,7 @@ class UserView(APIView):
 
 class ProfileView(UserView):
     def get(self, request):
-        return Response(serializers.ProfileSerializer(request.user).data)
+        return Response(serializers.ProfileReadSerializer(request.user).data)
 
     def patch(self, request):
         serializer = serializers.ProfileUpdateSerializer(data=request.data)
