@@ -170,13 +170,15 @@ class ActiveChildAPITests(TestCase):
             get_user_model().objects.filter(pk=self.owner.pk).update(active_child_id=9223372036854775807)
         self.assertIsNone(self.selected())
 
-    def test_existing_profile_and_child_response_contracts_unchanged(self):
+    def test_profile_selection_field_and_existing_child_response_contracts(self):
         routes = (reverse("accounts:profile"), reverse("children:list"),
                   reverse("children:detail", args=[self.first.pk]))
         before = [self.client.get(route).data for route in routes]
         self.select(self.first.pk)
-        self.assertEqual([self.client.get(route).data for route in routes], before)
-        self.assertNotIn("active_child_id", before[0])
+        after = [self.client.get(route).data for route in routes]
+        self.assertIsNone(before[0]["active_child_id"])
+        self.assertEqual(after[0], {**before[0], "active_child_id": self.first.pk})
+        self.assertEqual(after[1:], before[1:])
         for method in ("get", "post", "patch", "delete"):
             self.error(getattr(self.client, method)(self.url), 405)
 

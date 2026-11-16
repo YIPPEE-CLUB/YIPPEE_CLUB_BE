@@ -1164,16 +1164,23 @@ paths:
                     type: string
                     description: name 값
                     example: 아이 이름
+                  active_child_id:
+                    type: integer
+                    nullable: true
+                    description: 현재 선택된 본인 아이 ID. 미선택 또는 선택 아이 삭제 시 null
+                    example: 3
                 required:
                 - id
                 - email
                 - phone
                 - name
+                - active_child_id
               example:
                 id: 1
                 email: user@example.com
                 phone: 01012345678
                 name: 아이 이름
+                active_child_id: 3
         '400':
           description: 요청 형식 또는 필수값 오류
           content:
