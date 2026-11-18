@@ -95,6 +95,22 @@ class AuthAPITests(TestCase):
             self.assert_error(self.post("identifier-check", {"identifier": "another@example.com"}), 429)
         self.assertTrue(AuthRateLimit.objects.exists())
 
+    @override_settings(AUTH_IP_LIMIT=1)
+    def test_forwarded_headers_do_not_change_the_ip_limit(self):
+        url = reverse("email_verification:identifier-check")
+        source = "192.0.2.10"
+        first = self.client.post(url, {"identifier": self.email}, format="json",
+                                 REMOTE_ADDR=source, HTTP_X_FORWARDED_FOR="198.51.100.10")
+        self.assertEqual(first.status_code, 200)
+        blocked = self.client.post(url, {"identifier": "other@example.com"}, format="json",
+                                   REMOTE_ADDR=source, HTTP_X_FORWARDED_FOR="198.51.100.20",
+                                   HTTP_X_REAL_IP="198.51.100.21", HTTP_FORWARDED="for=198.51.100.22")
+        self.assert_error(blocked, 429)
+        self.assertEqual(blocked.json()["code"], "RATE_LIMITED")
+        separate = self.client.post(url, {"identifier": self.email}, format="json",
+                                    REMOTE_ADDR="192.0.2.11", HTTP_X_FORWARDED_FOR="198.51.100.10")
+        self.assertEqual(separate.status_code, 200)
+
     def test_mail_failure_rolls_back_challenge_and_redacts_error(self):
         with patch("email_verification.verification.send_mail", side_effect=RuntimeError("secret-mail-body")):
             response = self.post("verification-send", {"identifier": self.email, "purpose": "signup"})

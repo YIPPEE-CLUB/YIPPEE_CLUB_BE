@@ -1,5 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from rest_framework import serializers
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated
@@ -12,6 +14,7 @@ from .permissions import IsChildOwner
 from .serializers import ActiveChildSerializer, ChildCreateSerializer, ChildReadSerializer, ChildUpdateSerializer
 
 
+@method_decorator(never_cache, name="dispatch")
 class ChildAPIView(GenericAPIView):
     permission_classes = [IsAuthenticated, IsChildOwner]
     lookup_url_kwarg = "child_id"

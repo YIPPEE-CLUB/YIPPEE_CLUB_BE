@@ -11,6 +11,8 @@
 
 > **읽는 순서:** 이 0절의 확정 정책이 뒤의 기존 API별 예시·제안 문구보다 우선합니다. 99개 API는 서비스 전체의 설계 목록이며, 모두 1차 구현 대상이라는 뜻이 아닙니다. 상세 표에 남은 `선택`, `미확정`, 예시 값은 실제 구현 전 팀 검토가 필요합니다.
 
+현재 제공 범위는 JSON API 27개와 아래 활동지 파일 API입니다. 파일 API는 99개 설계 목록과 별도로 제공됩니다. 38~40번 구매 전 미리보기·구매 목록·구매 다운로드 권한 발급은 후속 설계입니다.
+
 ### 0-1. 확정 정책
 
 | 구분 | 확정 내용 | 개발 반영 기준 |
@@ -41,7 +43,7 @@
 
 ### 0-3. 프론트엔드와 백엔드 간 필수 합의
 
-- **회원가입 순서:** 이메일 입력 → 인증번호 발송(`POST /auth/verification/send`) → 인증번호 확인(`POST /auth/verification/confirm`) → 검증된 `verification_token`으로 가입(`POST /auth/signup`). 기존 상세 명세의 `password` 선택 표기는 **이메일 가입에 한해 필수**로 해석합니다.
+- **회원가입 순서:** 이메일 입력 → 인증번호 발송(`POST /auth/verification/send`) → 인증번호 확인(`POST /auth/verification/confirm`) → 검증된 `verification_token`과 필수 `password`로 가입(`POST /auth/signup`).
 - **카테고리 데이터:** `GET /activity-categories`의 카테고리 식별자를 아이 등록/수정 `interests` 배열과 활동지 카테고리 연결에 공통 사용합니다. 기존 승인 보완계약에 따라 식별자는 **정수 ID**, 카테고리 항목은 **{id, name}**을 사용합니다. 실제 목록 운영은 공통 categories 테이블을 따릅니다.
 - **아이 삭제:** `DELETE /children/{child_id}`는 아이 및 해당 아이의 활동 기록을 함께 삭제합니다. 연결된 사진의 스토리지 삭제/비동기 정리 방식은 별도 결정하며, 타인의 아이 삭제는 금지합니다.
 - **장바구니 담기 (2026-11-15 무료 정책):** JWT 인증 사용자는 공개 활동지를 구매 권한 기록과 관계없이 담을 수 있습니다. 동일 사용자·활동지 중복은 `409 INVALID_STATE`, 없는/비공개 활동지는 `400 VALIDATION_ERROR`입니다. 구매 확인용 503은 사용하지 않으며 기존 구매 권한 기록은 보존합니다. 주문·결제·PG·환불은 이번 범위에서 제외합니다.
@@ -60,20 +62,21 @@
 - 페이지 목록: `count`, `next`(string|null), `previous`(string|null), `results`(array). 기존 각 API의 단순 `results` 응답은 이 규칙으로 정규화할 것을 제안합니다. **개별 표와 충돌 시 구현 전 표를 수정**합니다.
 - `Nullable: X`와 `선택`은 다릅니다. 선택 필드는 생략할 수 있지만 null을 전송할 수는 없습니다.
 - 인증이 필요한 API에서 리소스 소유권은 반드시 DB에서 확인합니다. 타인의 아이·주문·기록·문의에는 접근할 수 없어야 합니다.
+- 구현된 인증·계정·아이·찜·장바구니 API 응답은 `Cache-Control`에 `private, no-store`를 포함합니다. 성공과 해당 API가 처리하는 오류에 모두 적용합니다.
 
 ### 2. 오류 응답
 ```json
 {
   "code": "VALIDATION_ERROR",
   "message": "요청값을 확인해 주세요.",
-  "details": {"identifier": ["올바른 이메일 또는 전화번호를 입력하세요."]},
+  "details": {"identifier": ["요청값을 확인해 주세요."]},
   "request_id": "req_test_001"
 }
 ```
 | HTTP | 제안 코드 | 의미 |
 |---|---|---|
 | 400 | VALIDATION_ERROR | 형식·필수 필드 오류 |
-| 401 | AUTHENTICATION_REQUIRED / TOKEN_EXPIRED | 인증 실패·만료 |
+| 401 | AUTHENTICATION_REQUIRED | 현재 구현의 인증 실패·만료 |
 | 403 | PERMISSION_DENIED | 소유권·권한 부족 |
 | 404 | NOT_FOUND | 대상 없음 또는 노출 불가 |
 | 409 | ALREADY_EXISTS / INVALID_STATE | 중복·상태 충돌 |
@@ -111,8 +114,8 @@
 
 | Method | Endpoint (`/api/v1` 뒤) | 설명 |
 |---|---|---|
-| `POST` | `/auth/identifiers/check` | 이메일/전화번호 가입 여부 확인 |
-| `POST` | `/auth/verification/send` | 이메일/휴대전화 인증번호 발송(가입 방식별 정책 확정 필요) |
+| `POST` | `/auth/identifiers/check` | 이메일 가입 여부 확인 |
+| `POST` | `/auth/verification/send` | 가입용 이메일 인증번호 발송 |
 | `POST` | `/auth/identity/start` | 실명 본인확인 시작(외부 인증사 연동 제안) |
 | `POST` | `/auth/identity/confirm` | 본인확인 결과 검증(인증사 연동 제안) |
 | `POST` | `/auth/verification/confirm` | 6자리 인증번호 검증 |
@@ -249,10 +252,10 @@
 
 ## 3. API별 상세 명세
 
-## 01. 이메일/전화번호 가입 여부 확인
+## 01. 이메일 가입 여부 확인
 **`POST /api/v1/auth/identifiers/check`**
 
-기능: 이메일/전화번호 가입 여부 확인.
+기능: 이메일 가입 여부를 확인합니다. 현재 `identifier_type`은 `email`입니다.
 
 ### Request
 
@@ -306,12 +309,12 @@
 
 ---
 
-## 02. 이메일/휴대전화 인증번호 발송(가입 방식별 정책 확정 필요)
+## 02. 가입용 이메일 인증번호 발송
 **`POST /api/v1/auth/verification/send`**
 
 **v1.5 확정:** 1차 가입 인증은 이메일로 발송합니다. 인증번호 확인은 필수이며 발송 제한·만료 시간은 별도 검토합니다.
 
-기능: 이메일/휴대전화 인증번호 발송(가입 방식별 정책 확정 필요).
+기능: `purpose`가 `signup`인 이메일 인증번호 요청을 처리합니다. 응답의 `expires_in_seconds`를 유효 시간으로 사용합니다.
 
 ### Request
 
@@ -547,7 +550,7 @@
 ## 06. 회원가입 완료
 **`POST /api/v1/auth/signup`**
 
-**v1.5 확정:** 이메일·비밀번호 가입만 우선 구현합니다. 이메일 인증 완료 `verification_token`이 필수이고, 이메일 가입에서 `password`는 **필수**입니다. 아래 기존 표의 `password 선택` 표기보다 이 규칙이 우선합니다.
+**v1.5 확정:** 이메일·비밀번호 가입을 우선 구현합니다. 이메일 인증 완료 `verification_token`과 `password`는 필수입니다.
 
 기능: 회원가입 완료.
 
@@ -570,7 +573,7 @@
 | `identifier` | identifier 값 | string | Body / 필수 | X | `user@example.com` |
 | `verification_token` | verification token 값 | string | Body / 필수 | X | `vtoken_test_001` |
 | `agreements` | agreements 값 | object | Body / 필수 | X | `{}` |
-| `password` | password 값 | string | Body / 선택 | O | `Password123` |
+| `password` | password 값 | string | Body / 필수 | X | `Password123` |
 
 **Request Example**
 ```json
@@ -649,14 +652,20 @@
 |---|---|---|---|---|
 | `access_token` | access token 값 | string | 응답 / 필수 | X | `eyJ...` |
 | `refresh_token` | refresh token 값 | string | 응답 / 필수 | X | `eyJ...` |
-| `user` | user 값 | object | 응답 / 필수 | X | `{}` |
+| `user` | 프로필 객체 (`id`, `email`, `phone`, `name`, `nickname`). 닉네임이 비어 있으면 빈 문자열 | object | 응답 / 필수 | X | 아래 예시 참조 |
 
 **Example**
 ```json
 {
   "access_token": "eyJ...",
   "refresh_token": "eyJ...",
-  "user": {}
+  "user": {
+    "id": 1,
+    "email": "user@example.com",
+    "phone": "01012345678",
+    "name": "보호자",
+    "nickname": "부모님"
+  }
 }
 ```
 
@@ -855,7 +864,7 @@
 ## 11. 비밀번호 재설정 메일
 **`POST /api/v1/auth/password/reset-request`**
 
-기능: 비밀번호 재설정 메일.
+기능: 요청 검증과 호출 제한을 통과하고 재설정 URL 설정이 유효하면 활성·비활성·미등록 계정에 동일한 200 응답을 반환합니다. 메일 발송은 활성 계정에 대해서만 시도하며, SMTP 발송 실패 시에도 응답은 같습니다. 200은 요청에 대한 응답이며 메일 전달을 확인하지 않습니다. 재설정 URL이 미설정 또는 유효하지 않으면 계정 조회 전에 500을 반환합니다. 링크는 서버에 설정된 고정 HTTPS 주소의 fragment에 재설정 토큰을 담습니다.
 
 ### Request
 
@@ -910,7 +919,7 @@
 ## 12. 새 비밀번호 설정
 **`POST /api/v1/auth/password/reset-confirm`**
 
-기능: 새 비밀번호 설정.
+기능: 유효한 재설정 토큰으로 비밀번호를 변경합니다. 토큰의 기본 유효 시간은 600초이며, 변경 성공 후 기존 재설정 토큰과 기존 access·refresh 토큰은 사용할 수 없습니다.
 
 ### Request
 
@@ -1160,6 +1169,7 @@
 | `phone` | phone 값 | string | 응답 / 필수 | X | `01012345678` |
 | `name` | name 값 | string | 응답 / 필수 | X | `아이 이름` |
 | `active_child_id` | 현재 선택된 본인 아이 ID. 미선택 또는 선택 아이 삭제 시 null | integer | 응답 / 필수 | O | `3` 또는 `null` |
+| `nickname` | 저장된 닉네임. 비어 있으면 빈 문자열 | string | 응답 / 필수 | X | `부모님` |
 
 **Example**
 ```json
@@ -1168,7 +1178,8 @@
   "email": "user@example.com",
   "phone": "01012345678",
   "name": "아이 이름",
-  "active_child_id": 3
+  "active_child_id": 3,
+  "nickname": "부모님"
 }
 ```
 
@@ -1205,7 +1216,7 @@
 | key | 설명 | value 타입 | 옵션 | Nullable | 예시 |
 |---|---|---|---|---|
 | `name` | name 값 | string | Body / 선택 | O | `아이 이름` |
-| `nickname` | nickname 값 | string | Body / 선택 | O | `부모님` |
+| `nickname` | 저장할 닉네임. null은 빈 문자열로 저장하며 생략하면 기존 값 유지 | string | Body / 선택 | O | `부모님` |
 
 **Request Example**
 ```json
@@ -1223,6 +1234,7 @@
 | `email` | email 값 | string | 응답 / 필수 | X | `user@example.com` |
 | `phone` | phone 값 | string | 응답 / 필수 | X | `01012345678` |
 | `name` | name 값 | string | 응답 / 필수 | X | `아이 이름` |
+| `nickname` | 저장된 닉네임. 비어 있으면 빈 문자열 | string | 응답 / 필수 | X | `부모님` |
 
 **Example**
 ```json
@@ -1230,7 +1242,8 @@
   "id": 1,
   "email": "user@example.com",
   "phone": "01012345678",
-  "name": "아이 이름"
+  "name": "아이 이름",
+  "nickname": "부모님"
 }
 ```
 
@@ -1766,7 +1779,7 @@
 ## 27. 활동지 목록·검색·필터·정렬
 **`GET /api/v1/activities`**
 
-기능: 활동지 목록·검색·필터·정렬.
+기능: 공개 활동지 목록·검색·필터·정렬. 익명 요청을 허용하며, 제공된 무효·만료 Bearer는 401을 반환합니다.
 
 ### Request
 
@@ -1779,13 +1792,13 @@
 | key | 설명 | value 타입 | 옵션 | Nullable | 예시 |
 |---|---|---|---|---|
 | `q` | q 값 | string | Query / 선택 | O | `자동차` |
-| `category` | category 값 | string | Query / 선택 | O | `painting` |
+| `category` | 공통 카테고리의 정수 ID | integer | Query / 선택 | X | `1` |
 | `age_years` | age years 값 | integer | Query / 선택 | O | `1` |
 | `duration` | duration 값 | string | Query / 선택 | O | `5-10` |
-| `difficulty` | difficulty 값 | string | Query / 선택 | O | `easy` |
+| `difficulty` | `easy` 또는 `hard` | string | Query / 선택 | X | `easy` |
 | `price_min` | price min 값 | integer | Query / 선택 | O | `1` |
 | `price_max` | price max 값 | integer | Query / 선택 | O | `1` |
-| `sort` | sort 값 | string | Query / 선택 | O | `popular` |
+| `sort` | `latest`(기본), `oldest`, `title`, `price_asc`, `price_desc` | string | Query / 선택 | X | `latest` |
 | `page` | page 값 | integer | Query / 선택 | O | `1` |
 | `page_size` | page size 값 | integer | Query / 선택 | O | `1` |
 
@@ -1800,16 +1813,16 @@
 | key | 설명 | value 타입 | 옵션 | Nullable | 예시 |
 |---|---|---|---|---|
 | `count` | count 값 | integer | 응답 / 필수 | X | `1` |
-| `next` | next 값 | string | 응답 / 필수 | O | `(미확정 예시)` |
-| `previous` | previous 값 | string | 응답 / 필수 | O | `(미확정 예시)` |
-| `results` | results 값 | array | 응답 / 필수 | X | `[]` |
+| `next` | 다음 페이지 URL | string | 응답 / 필수 | O | `null` |
+| `previous` | 이전 페이지 URL | string | 응답 / 필수 | O | `null` |
+| `results` | 28번과 동일한 활동지 객체 목록 | array | 응답 / 필수 | X | `[]` |
 
 **Example**
 ```json
 {
-  "count": 1,
-  "next": "UNSPECIFIED",
-  "previous": "UNSPECIFIED",
+  "count": 0,
+  "next": null,
+  "previous": null,
   "results": []
 }
 ```
@@ -1820,6 +1833,7 @@
 |---|---|
 | 200 | 정상 처리 |
 | 400 | 요청 형식 또는 필수값 오류 |
+| 401 | 제공한 Bearer 토큰이 무효 또는 만료 (`AUTHENTICATION_REQUIRED`) |
 | 500 | 서버 내부 오류 |
 
 ---
@@ -1827,7 +1841,7 @@
 ## 28. 활동지 상세
 **`GET /api/v1/activities/{activity_id}`**
 
-기능: 활동지 상세.
+기능: 공개 활동지 상세 조회. 익명 요청을 허용하며, 제공된 무효·만료 Bearer는 401을 반환합니다.
 
 ### Request
 
@@ -1859,18 +1873,34 @@
 |---|---|---|---|---|
 | `id` | id 값 | integer | 응답 / 필수 | X | `1` |
 | `title` | title 값 | string | 응답 / 필수 | X | `활동지 제목` |
-| `price` | price 값 | integer | 응답 / 필수 | X | `1900` |
+| `price` | 확정 무료 정책에 따라 0원 | integer | 응답 / 필수 | X | `0` |
 | `sale_status` | sale status 값 | string | 응답 / 필수 | X | `on_sale` |
 | `description` | description 값 | string | 응답 / 필수 | X | `(미확정 예시)` |
+| `age_min_months` | 최소 연령 (개월) | integer | 응답 / 필수 | X | `24` |
+| `age_max_months` | 최대 연령 (개월) | integer | 응답 / 필수 | X | `48` |
+| `difficulty` | `easy` 또는 `hard` | string | 응답 / 필수 | X | `easy` |
+| `duration_min` | 최소 소요 시간 (분) | integer | 응답 / 필수 | X | `5` |
+| `duration_max` | 최대 소요 시간 (분) | integer | 응답 / 필수 | X | `10` |
+| `categories` | 공통 카테고리 ID 목록 | integer[] | 응답 / 필수 | X | `[1]` |
+| `image` | 표지 파일의 절대 URL | string | 응답 / 필수 | X | 38번 앞의 파일 경로 참조 |
+| `pdf` | PDF 파일의 절대 URL | string | 응답 / 필수 | X | 38번 앞의 파일 경로 참조 |
 
 **Example**
 ```json
 {
   "id": 1,
   "title": "활동지 제목",
-  "price": 1900,
+  "price": 0,
   "sale_status": "on_sale",
-  "description": "UNSPECIFIED"
+  "description": "활동지 설명",
+  "age_min_months": 24,
+  "age_max_months": 48,
+  "difficulty": "easy",
+  "duration_min": 5,
+  "duration_max": 10,
+  "categories": [1],
+  "image": "https://api.example.com/api/v1/activities/1/files/image",
+  "pdf": "https://api.example.com/api/v1/activities/1/files/pdf"
 }
 ```
 
@@ -1880,6 +1910,7 @@
 |---|---|
 | 200 | 정상 처리 |
 | 400 | 요청 형식 또는 필수값 오류 |
+| 401 | 제공한 Bearer 토큰이 무효 또는 만료 (`AUTHENTICATION_REQUIRED`) |
 | 404 | 대상 리소스를 찾을 수 없음 |
 | 500 | 서버 내부 오류 |
 
@@ -2340,6 +2371,14 @@
 ---
 
 ## 38. 구매 전 미리보기
+
+구매 관련 38~40번은 후속 설계입니다. 현재 공개 활동지 파일을 받는 구현 경로는 다음과 같습니다.
+
+- `GET /api/v1/activities/{activity_id}/files/{kind}`에서 `kind`는 `image` 또는 `pdf`입니다. 목록과 상세의 `image`, `pdf` 필드는 이 경로의 절대 URL을 반환합니다.
+- 공개 활동지 파일은 인증 없이 내려받을 수 있습니다. 제공한 Bearer가 무효하거나 만료되면 401입니다. 비공개·없는 활동지, 없는 파일, 지원하지 않는 종류는 404입니다.
+- 성공 응답은 바이너리이며 `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`를 포함합니다.
+- 요청의 `Accept`는 생략하거나 `*/*`를 사용합니다. 바이너리 미디어 타입만 지정하면 현재 DRF 협상 설정에서 406이 반환될 수 있습니다.
+
 **`GET /api/v1/activities/{activity_id}/preview`**
 
 기능: 구매 전 미리보기.

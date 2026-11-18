@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone as datetime_timezone
 from urllib.parse import urlencode, urlsplit
 
@@ -25,6 +26,7 @@ from .models import RefreshSession
 from .serializers import check_new_password
 
 RESET_SALT = "accounts.password-reset"
+logger = logging.getLogger(__name__)
 
 
 def _token_digest(raw):
@@ -168,10 +170,12 @@ def request_password_reset(email):
         sent = send_mail("YIPPEE CLUB 비밀번호 재설정", text_body,
                          settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=False,
                          html_message=html_body)
-        if sent != 1:
-            raise RuntimeError("Mail not delivered")
     except Exception:
-        raise AuthError("메일 발송에 실패했습니다.", status=500, code="INTERNAL_SERVER_ERROR") from None
+        sent = 0
+    if sent != 1:
+        # Keep the public acknowledgment independent of SMTP. Provider
+        # exceptions may contain credentials or the rendered reset link.
+        logger.error("password_reset_email_send_failed")
 
 
 @sensitive_variables()

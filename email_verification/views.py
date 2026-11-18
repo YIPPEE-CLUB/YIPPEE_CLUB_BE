@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from django.views.decorators.debug import sensitive_post_parameters
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -12,6 +13,7 @@ from .security import consume_limit, limit_request
 
 
 @method_decorator(sensitive_post_parameters(), name="dispatch")
+@method_decorator(never_cache, name="dispatch")
 class AuthView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]

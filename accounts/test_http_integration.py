@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.files import File
 from django.db.backends.signals import connection_created
@@ -87,9 +88,13 @@ class CoreHTTPIntegrationTests(LiveServerTestCase):
                                   "actual": status, "passed": status == expected,
                                   "content_type": content_type, "bytes": len(raw)})
             self.assertEqual(status, expected, f"{method} {path}: unexpected HTTP status {status}")
+            if path.split("/", 1)[0] in {"auth", "users", "children", "favorites", "cart"}:
+                directives = {part.strip() for part in response.headers.get("Cache-Control", "").split(",")}
+                self.assertTrue({"private", "no-store"} <= directives, path)
             if binary:
                 self.assertIn("attachment;", response.headers.get("Content-Disposition", ""))
                 self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
+                self.assertEqual(response.headers.get("Cache-Control"), "private, no-store")
             elif status == 204:
                 self.assertEqual(raw, b"")
             else:
@@ -123,13 +128,13 @@ class CoreHTTPIntegrationTests(LiveServerTestCase):
     def login(self, email, password):
         result = self.http("POST", "auth/login", body={"email": email, "password": password})
         self.keys(result, "access_token refresh_token user")
-        self.keys(result["user"], "id email phone name")
+        self.keys(result["user"], "id email phone name nickname")
         self.token = result["access_token"]
         return result
 
     def profile(self, selected):
         result = self.http("GET", "users/me")
-        self.keys(result, "id email phone name active_child_id")
+        self.keys(result, "id email phone name nickname active_child_id")
         self.assertEqual(result["active_child_id"], selected)
         return result
 
@@ -142,42 +147,61 @@ class CoreHTTPIntegrationTests(LiveServerTestCase):
 
     def test_auth_children_and_account_lifecycle(self):
         self.http("GET", "users/me", 401)
+        self.http("PATCH", "users/me", 401, {"nickname": "Unauthenticated"})
         self.token = "invalid"
         self.http("GET", "users/me", 401)
         self.token = None
         owner = self.signup("http-owner@example.com")
-        self.assertEqual(self.profile(None)["id"], owner["user"]["id"])
+        self.assertEqual(self.profile(None), {**owner["user"], "active_child_id": None})
+        self.assertEqual(owner["user"]["nickname"], "")
         refresh = self.http("POST", "auth/token/refresh", body={"refresh_token": owner["refresh_token"]})
         self.keys(refresh, "access_token refresh_token")
         self.token = refresh["access_token"]
         self.profile(None)
+        result = self.http("PATCH", "users/me", body={"nickname": "HTTP Nickname"})
+        self.keys(result, "id email phone name nickname")
+        self.assertEqual(result["nickname"], "HTTP Nickname")
+        self.assertEqual(self.profile(None), {**result, "active_child_id": None})
         result = self.http("PATCH", "users/me", body={"name": "HTTP Parent"})
-        self.keys(result, "id email phone name")
         self.assertEqual(result["name"], "HTTP Parent")
+        self.assertEqual(result["nickname"], "HTTP Nickname")
+        saved_profile = result
         children = []
         for name in ("A", "B"):
             child = self.http("POST", "children", 201, {"name": name, "birth_date": "2022-05-01",
                                                         "interests": [self.category.pk]})
             self.keys(child, "id name birth_date gender interests")
+            self.assertEqual(child["interests"], [self.category.pk])
             children.append(child["id"])
         result = self.http("GET", "children")
         self.keys(result, "results")
         self.assertEqual([r["id"] for r in result["results"]], children)
         self.http("PATCH", f"children/{children[0]}", body={"name": "A updated"})
+        child = self.http("GET", f"children/{children[0]}")
+        self.assertEqual(child["name"], "A updated")
+        self.assertEqual(child["interests"], [self.category.pk])
         for pk in children:
             self.assertEqual(self.http("PUT", "users/me/active-child", body={"child_id": pk}), {"active_child_id": pk})
             self.profile(pk)
         self.opener = build_opener(ProxyHandler({}))
-        self.login("http-owner@example.com", "HttpPassword!83927")
-        self.profile(children[1])
+        login = self.login("http-owner@example.com", "HttpPassword!83927")
+        self.assertEqual(login["user"], saved_profile)
+        self.assertEqual(self.profile(children[1]), {**saved_profile, "active_child_id": children[1]})
         other = self.signup("http-other@example.com")
-        self.profile(None)
+        self.assertEqual(self.profile(None), {**other["user"], "active_child_id": None})
+        self.assertEqual(other["user"]["nickname"], "")
+        self.http("PATCH", "users/me", 400, {"id": owner["user"]["id"], "nickname": "Other"})
         self.assertEqual(self.http("GET", "children"), {"results": []})
         for method in ("GET", "PATCH", "DELETE"):
             self.http(method, f"children/{children[1]}", 404, {} if method == "PATCH" else None)
         self.http("PUT", "users/me/active-child", 400, {"child_id": children[1]})
         self.assertNotEqual(owner["user"]["id"], other["user"]["id"])
         self.login("http-owner@example.com", "HttpPassword!83927")
+        self.assertEqual(self.profile(children[1])["nickname"], "HTTP Nickname")
+        cleared = self.http("PATCH", "users/me", body={"nickname": None})
+        self.assertEqual(cleared, {**saved_profile, "nickname": ""})
+        self.assertEqual(self.profile(children[1]), {**cleared, "active_child_id": children[1]})
+        self.assertEqual(get_user_model().objects.get(pk=owner["user"]["id"]).nickname, "")
         self.http("DELETE", f"children/{children[0]}", 204)
         self.profile(children[1])
         self.http("DELETE", f"children/{children[1]}", 204)

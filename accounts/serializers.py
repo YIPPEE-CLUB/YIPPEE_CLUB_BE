@@ -71,6 +71,7 @@ class ProfileSerializer(serializers.Serializer):
     email = serializers.EmailField(read_only=True)
     phone = serializers.CharField(read_only=True)
     name = serializers.CharField(read_only=True)
+    nickname = serializers.CharField(read_only=True)
 
 
 class ProfileReadSerializer(ProfileSerializer):

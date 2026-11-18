@@ -1,4 +1,6 @@
 from django.db import transaction
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from rest_framework import serializers
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated
@@ -12,6 +14,7 @@ from .models import Favorite
 from .serializers import FavoriteCreateSerializer, FavoritePageSerializer
 
 
+@method_decorator(never_cache, name="dispatch")
 class FavoriteAPIView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = FavoriteCreateSerializer
