@@ -34,7 +34,7 @@ class ProfileSelectionTests(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data, {"id": self.owner.pk, "email": self.owner.email,
-                                       "phone": "", "name": "", "active_child_id": selected})
+                                       "phone": "", "name": "", "nickname": "", "active_child_id": selected})
 
     def select(self, child):
         response = self.client.put(reverse("children:active-child"), {"child_id": child.pk}, format="json")
@@ -87,10 +87,10 @@ class ProfileSelectionTests(TestCase):
             "email": self.owner.email, "password": "ProfilePwd!83927"}, format="json")
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(set(response.data), {"access_token", "refresh_token", "user"})
-        self.assertEqual(set(response.data["user"]), {"id", "email", "phone", "name"})
+        self.assertEqual(set(response.data["user"]), {"id", "email", "phone", "name", "nickname"})
         response = self.client.patch(self.url, {"name": "Parent"}, format="json")
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data, {"id": self.owner.pk, "email": self.owner.email,
-                                       "phone": "", "name": "Parent"})
+                                       "phone": "", "name": "Parent", "nickname": ""})
         self.owner.refresh_from_db()
         self.assertEqual(self.owner.active_child_id, self.first.pk)

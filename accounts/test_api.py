@@ -15,7 +15,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
-from email_verification.models import EmailVerification
+from email_verification.models import AuthRateLimit, EmailVerification
 from email_verification.security import digest
 
 from .models import RefreshSession
@@ -149,7 +149,8 @@ class AccountAPITests(TestCase):
         response = self.login(email="PARENT@EXAMPLE.COM")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(set(response.data), {"access_token", "refresh_token", "user"})
-        self.assertEqual(set(response.data["user"]), {"id", "email", "phone", "name"})
+        self.assertEqual(set(response.data["user"]), {"id", "email", "phone", "name", "nickname"})
+        self.assertEqual(response.data["user"]["nickname"], "")
         self.assertNotIn("password", str(response.data))
 
     def test_login_bad_password_unknown_and_inactive(self):
@@ -215,16 +216,53 @@ class AccountAPITests(TestCase):
         self.client.credentials(HTTP_AUTHORIZATION="Bearer invalid")
         self.assert_error(self.client.patch(reverse("accounts:profile"), {"name": "private"}, format="json"), 401)
 
+    def test_non_staff_session_cannot_open_admin(self):
+        account = self.signup()
+        self.assertEqual(account.status_code, 201)
+        user = get_user_model().objects.get(pk=account.data["user_id"])
+        self.assertFalse(user.is_staff)
+        self.client.force_login(user)
+        for route in ("admin:index", "admin:accounts_user_changelist"):
+            with self.subTest(route=route):
+                url = reverse(route)
+                response = self.client.get(url)
+                self.assertRedirects(response, f"{reverse('admin:login')}?next={url}",
+                                     fetch_redirect_response=False)
+
     def test_profile_update_and_null_clear(self):
-        self.authenticated()
-        response = self.client.patch(reverse("accounts:profile"), {"name": "부모", "nickname": "닉네임"}, format="json")
+        tokens = self.authenticated()
+        profile_url = reverse("accounts:profile")
+        response = self.client.patch(profile_url, {"name": "부모", "nickname": "닉네임"}, format="json")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["name"], "부모")
+        self.assertEqual(response.data["nickname"], "닉네임")
         user = get_user_model().objects.get()
         self.assertEqual(user.nickname, "닉네임")
-        response = self.client.patch(reverse("accounts:profile"), {"name": None, "nickname": None}, format="json")
+
+        fresh_client = APIClient()
+        fresh_client.credentials(HTTP_AUTHORIZATION="Bearer " + tokens["access_token"])
+        profile = fresh_client.get(profile_url)
+        self.assertEqual(profile.status_code, 200)
+        self.assertEqual(profile.data, {"id": user.pk, "email": self.email, "phone": "",
+                                        "name": "부모", "nickname": "닉네임", "active_child_id": None})
+
+        response = self.client.patch(profile_url, {"name": "보호자"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["nickname"], "닉네임")
+        self.assertEqual(fresh_client.get(profile_url).data["nickname"], "닉네임")
+        login = self.login()
+        self.assertEqual(login.status_code, 200)
+        self.assertEqual(login.data["user"], {"id": user.pk, "email": self.email, "phone": "",
+                                             "name": "보호자", "nickname": "닉네임"})
+
+        response = self.client.patch(profile_url, {"name": None, "nickname": None}, format="json")
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["name"], "")
-        self.assertEqual(self.client.patch(reverse("accounts:profile"), {}, format="json").status_code, 200)
+        self.assertEqual(response.data["nickname"], "")
+        user.refresh_from_db()
+        self.assertEqual(user.nickname, "")
+        self.assertEqual(fresh_client.get(profile_url).data["nickname"], "")
+        self.assertEqual(self.client.patch(profile_url, {}, format="json").status_code, 200)
 
     def test_other_users_data_and_privileged_fields_cannot_be_modified(self):
         tokens = self.authenticated()
@@ -267,6 +305,8 @@ class AccountAPITests(TestCase):
         self.assertEqual(self.post("password-reset-confirm", body).status_code, 200)
         self.assert_error(self.post("password-reset-confirm", body), 400)
         self.assert_error(self.post("refresh", {"refresh_token": tokens["refresh_token"]}), 400)
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer " + tokens["access_token"])
+        self.assert_error(self.client.get(reverse("accounts:profile")), 401)
         self.assertEqual(self.login(password=body["new_password"]).status_code, 200)
         self.assert_error(self.login(password=self.password), 400)
 
@@ -323,14 +363,24 @@ class AccountAPITests(TestCase):
             send.assert_not_called()
 
     def test_reset_unknown_email_invalid_token_and_mail_error(self):
-        self.assertEqual(self.post("password-reset-request", {"email": "unknown@example.com"}).status_code, 200)
+        unknown = self.post("password-reset-request", {"email": "unknown@example.com"})
+        self.assertEqual(unknown.status_code, 200)
+        self.assertEqual(unknown.data, {"message": "처리되었습니다."})
         self.assertEqual(len(mail.outbox), 0)
         self.assert_error(self.post("password-reset-confirm", {"reset_token": "invalid", "new_password": self.password}), 400)
         self.signup()
-        with patch("accounts.services.send_mail", side_effect=RuntimeError("private-token-secret")):
-            response = self.post("password-reset-request", {"email": self.email})
-        self.assert_error(response, 500)
-        self.assertNotIn("private-token-secret", str(response.data))
+        provider_error = RuntimeError(f"{self.email} private-reset-token private-password private-smtp-secret")
+        for failure in ({"side_effect": provider_error}, {"return_value": 0}):
+            with self.subTest(failure=next(iter(failure))):
+                with patch("accounts.services.send_mail", **failure) as send:
+                    with self.assertLogs("accounts.services", level="ERROR") as logs:
+                        response = self.post("password-reset-request", {"email": self.email})
+                    send.assert_called_once()
+                self.assertEqual(response.status_code, unknown.status_code)
+                self.assertEqual(response.data, unknown.data)
+                self.assertEqual(logs.output, ["ERROR:accounts.services:password_reset_email_send_failed"])
+                self.assertIsNone(logs.records[0].exc_info)
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_reset_expiry_and_weak_password_do_not_change_password(self):
         self.signup()
@@ -342,6 +392,79 @@ class AccountAPITests(TestCase):
         self.assert_error(self.post("password-reset-confirm", {**body, "new_password": "weak"}), 400)
         self.assertTrue(get_user_model().objects.get().check_password(self.password))
         self.assertEqual(self.post("password-reset-confirm", body).status_code, 200)
+
+    def test_reset_tampered_issued_token_rejected_without_password_change(self):
+        self.signup()
+        self.assertEqual(self.post("password-reset-request", {"email": self.email}).status_code, 200)
+        token = self.reset_token_from_email()
+        payload, timestamp, signature = token.rsplit(":", 2)
+        replacement = "A" if signature[0] != "A" else "B"
+        tampered = ":".join((payload, timestamp, replacement + signature[1:]))
+        user = get_user_model().objects.get(email=self.email)
+        previous_hash = user.password
+        self.assert_error(self.post("password-reset-confirm", {
+            "reset_token": tampered, "new_password": "ResetSecurePwd!823948",
+        }), 400)
+        user.refresh_from_db()
+        self.assertTrue(user.password == previous_hash)
+        # A valid original token still works; failed tampering did not consume it.
+        self.assertEqual(self.post("password-reset-confirm", {
+            "reset_token": token, "new_password": "ResetSecurePwd!823948",
+        }).status_code, 200)
+
+    def test_reset_inactive_and_unknown_accounts_match_active_response(self):
+        self.signup()
+        active_response = self.post("password-reset-request", {"email": self.email})
+        self.assertEqual(active_response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        user = get_user_model().objects.get(email=self.email)
+        previous_hash = user.password
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+        mail.outbox.clear()
+        with patch("accounts.services.send_mail") as send:
+            for email in (self.email, "unknown@example.com"):
+                response = self.post("password-reset-request", {"email": email})
+                self.assertEqual(response.status_code, active_response.status_code)
+                self.assertEqual(response.data, active_response.data)
+            send.assert_not_called()
+        self.assertEqual(len(mail.outbox), 0)
+        user.refresh_from_db()
+        self.assertTrue(user.password == previous_hash)
+
+    def seed_reset_limit_boundary(self, scope, identity, limit):
+        # Exercise the configured boundary without changing limits or flooding APIs.
+        AuthRateLimit.objects.create(
+            key=digest(f"{scope}:{identity}", "email_verification.rate"),
+            window_start=timezone.now(), count=limit - 1,
+        )
+
+    def test_reset_request_ip_rate_limit(self):
+        self.seed_reset_limit_boundary("password-reset-request:ip", "127.0.0.1", settings.AUTH_IP_LIMIT)
+        body = {"email": "unknown@example.com"}
+        self.assertEqual(self.post("password-reset-request", body).status_code, 200)
+        with patch("accounts.services.request_password_reset") as request_reset:
+            self.assert_error(self.post("password-reset-request", body), 429)
+            request_reset.assert_not_called()
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_reset_request_email_rate_limit(self):
+        email = "unknown@example.com"
+        self.seed_reset_limit_boundary("password-reset-request:email", email, settings.AUTH_EMAIL_LIMIT)
+        self.assertEqual(self.post("password-reset-request", {"email": email}).status_code, 200)
+        with patch("accounts.services.request_password_reset") as request_reset:
+            self.assert_error(self.post("password-reset-request", {"email": email}), 429)
+            request_reset.assert_not_called()
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_reset_confirm_ip_rate_limit(self):
+        self.seed_reset_limit_boundary("password-reset-confirm:ip", "127.0.0.1", settings.AUTH_IP_LIMIT)
+        body = {"reset_token": "invalid", "new_password": "ResetSecurePwd!823948"}
+        self.assert_error(self.post("password-reset-confirm", body), 400)
+        with patch("accounts.services.confirm_password_reset") as confirm_reset:
+            self.assert_error(self.post("password-reset-confirm", body), 429)
+            confirm_reset.assert_not_called()
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_login_rate_limit(self):
         with override_settings(AUTH_IP_LIMIT=1):

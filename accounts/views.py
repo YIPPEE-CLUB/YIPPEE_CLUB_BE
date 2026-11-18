@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from django.views.decorators.debug import sensitive_post_parameters
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -67,6 +68,7 @@ class PasswordResetConfirmView(AuthView):
 
 
 @method_decorator(sensitive_post_parameters(), name="dispatch")
+@method_decorator(never_cache, name="dispatch")
 class UserView(APIView):
     # Global JWTAuthentication + IsAuthenticated apply to every method.
     def get_exception_handler(self):

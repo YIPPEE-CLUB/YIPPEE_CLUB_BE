@@ -1,4 +1,6 @@
 from django.db import transaction
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound
 from rest_framework.generics import GenericAPIView
@@ -12,6 +14,7 @@ from .models import CartItem
 from .serializers import CartCreateSerializer, CartQuerySerializer
 
 
+@method_decorator(never_cache, name="dispatch")
 class CartAPIView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = CartCreateSerializer

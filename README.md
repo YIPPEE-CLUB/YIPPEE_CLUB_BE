@@ -87,6 +87,19 @@ DB를 생성하거나 연결하지 않는 헬스 체크 테스트:
 python manage.py test config
 ```
 
+## 운영 보안 설정
+
+`.env.example`의 HTTPS 설정은 로컬 HTTP 개발에 맞춘 기본값입니다. 운영에서는 배포 환경의 시크릿 저장소에서 `SECRET_KEY`를 주입하고 `DEBUG=False`와 실제 `ALLOWED_HOSTS`를 지정하세요. 직접 교차 출처 요청이 필요한 경우에만 `CORS_ALLOWED_ORIGINS`에 승인한 출처를 넣으세요. 세션을 사용하는 교차 출처 요청에는 `CSRF_TRUSTED_ORIGINS`에 필요한 HTTPS 출처를 별도로 지정하세요.
+
+- **HTTPS와 쿠키** — HTTPS가 동작하면 `SESSION_COOKIE_SECURE=True`, `CSRF_COOKIE_SECURE=True`를 적용하세요. HTTP → HTTPS 전환을 Django에서 처리할 경우 `SECURE_SSL_REDIRECT=True`를 지정하세요. 프록시가 TLS를 종료한다면 HTTPS 요청이 리다이렉트 루프에 빠지지 않는지 확인하세요.
+- **프록시 신뢰** — 기본 설정에서 `SECURE_PROXY_SSL_HEADER`는 비어 있습니다. 외부 클라이언트가 보낸 스킴 헤더를 프록시가 제거하고 검증된 스킴을 직접 설정하며 백엔드 직접 접근이 차단된 경우에만 운영 설정에서 해당 헤더를 신뢰하도록 구성하세요.
+- **HSTS** — `SECURE_HSTS_SECONDS` 기본값은 `0`입니다. 대상 호스트에서 HTTPS를 검증한 뒤 짧은 기간부터 적용하세요. 모든 하위 도메인이 HTTPS를 지원하는 경우에만 `SECURE_HSTS_INCLUDE_SUBDOMAINS`를 활성화하세요. `SECURE_HSTS_PRELOAD`는 장기 적용과 해제 절차까지 검토한 뒤 결정하세요.
+- **관리자 접근** — 공개 배포 전에 `/admin/` 접근을 VPN 또는 접근 게이트웨이 등으로 제한하고 관리자 MFA와 역할별 최소 권한을 구성하세요. 애플리케이션에서는 Django의 활성 staff 및 모델 권한 검사를 사용합니다.
+- **원본 IP와 요청 제한** — 인증 API는 WSGI/ASGI 요청의 `REMOTE_ADDR`를 사용합니다. 배포 후보 환경에서 검증된 클라이언트 주소가 `REMOTE_ADDR`에 전달되도록 구성하고, 장비를 통과하는 서로 다른 클라이언트의 한도가 분리되는지와 외부 전달 헤더가 무시되는지 확인하세요.
+- **응답 캐시** — 인증·계정·아이·찜·장바구니 응답에 `private, no-store`가 적용됩니다. 프록시나 CDN에서도 이를 준수하고, 서로 다른 인증 사용자에게 응답을 재사용하지 않는지 확인하세요.
+
+배포 전에 운영 후보 설정으로 `python manage.py check --deploy`를 실행하세요. HTTPS 전환을 프록시가 맡는 경우 실제 HTTP 요청으로 전환 동작을 검증하세요.
+
 ## 인증 API 및 검증
 
 명세 기준은 [API_SPEC_v1.5.md](docs/API_SPEC_v1.5.md)와
