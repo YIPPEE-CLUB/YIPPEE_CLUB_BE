@@ -7,3 +7,4 @@ django-cors-headers>=4.7,<5.0
 Pillow==13.0.0
 gunicorn>=23,<24
 whitenoise>=6.8,<7
+django-anymail>=14,<16

@@ -150,6 +150,7 @@ AUTH_RATE_WINDOW_SECONDS = env.int("AUTH_RATE_WINDOW_SECONDS", default=600)
 AUTH_IP_LIMIT = env.int("AUTH_IP_LIMIT", default=30)
 AUTH_EMAIL_LIMIT = env.int("AUTH_EMAIL_LIMIT", default=10)
 EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
+ANYMAIL = {"RESEND_API_KEY": env("RESEND_API_KEY", default=""),}
 EMAIL_HOST = env("EMAIL_HOST", default="localhost")
 EMAIL_PORT = env.int("EMAIL_PORT", default=587)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
